@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-# In[1]:
+# In[2]:
 
 
 import nltk
@@ -12,7 +12,7 @@ import numpy as np
 import random
 
 
-# In[2]:
+# In[3]:
 
 
 # coding: utf-8
@@ -770,7 +770,7 @@ class SentimentIntensityAnalyzer(object):
 
 # # COUNTING Z-SCORES FOR REDDIT COMMENTS TAGGED AND DESCRIBED IN https://arxiv.org/pdf/2005.00547.pdf
 
-# In[3]:
+# In[8]:
 
 
 df1 = pd.read_csv('goemotions_1.csv')
@@ -783,49 +783,212 @@ emo_df = df.loc[:,['text','anger','disgust','fear','joy','sadness','surprise','a
 
 emotions = ['anger','disgust','fear','joy','sadness','surprise','trust','anticipation']
 emo_df.columns = ['text', 'anger','disgust','fear','joy','sadness','surprise','trust','anticipation']
-emo_df = emo_df[(emo_df.loc[:,emotions]==1).any(axis=1)]
+emo_df = emo_df[(emo_df.loc[:,emotions]==1).any(axis=1)].copy()
+emo_df = emo_df.reset_index(drop=True)
+emo_df = emo_df.drop_duplicates()
 
 
-# In[6]:
+# In[4]:
 
 
-mean_and_std = dict()
-analyzer = SentimentIntensityAnalyzer()
+'''How many posts elicit only one emotion in the dataset (how many for joy, how many for disgust, etc.)
+   How many posts elicit at least that emotion (e.g. joy with #, disgust with #, fear with #, etc?)'''
+
+emotion_counts = dict()
 
 for emotion in emotions:
-    mean_and_std[emotion] = []
-    temporary_df = emo_df[emo_df[emotion]==1]['text'].apply(lambda x: analyzer.polarity_scores(x)[emotion])
-    mean_and_std[emotion] = np.array([np.mean(temporary_df), np.std(temporary_df)]) 
+    emotion_counts[emotion] = []
+    at_least_emotion_idx = emo_df[emo_df[emotion]==1].index
+    only_emotion_idx = emo_df.iloc[:,1:][(emo_df.loc[:,emo_df.columns != emotion]!=1).all(axis=1) & emo_df[emotion]==1].index
+    emotion_counts[emotion] = np.array([len(only_emotion_idx), len(at_least_emotion_idx)])
+        
+emotion_counts
+
+
+# In[5]:
+
+
+# anger_idx = np.array(emo_df[emo_df['anger']==1].index)
+# all_idx = np.array(emo_df.index) 
+
+# '''indices of posts which doesn't t contain given emotion'''
+# not_anger_idx = [e for e in all_idx if e not in anger_idx]
+# not_anger_df = emo_df.iloc[not_anger_idx, :]
+
+# '''split into training and validation set ~ 50/50'''
+# anger_train_idx = np.random.choice(not_anger_idx, int(len(not_anger_idx)/2))
+# anger_validation_idx = [e for e in not_anger_idx if e not in anger_train_idx]
+
+# anger_train_df = emo_df.iloc[anger_train_idx,:]
+# anger_validation_df = emo_df.iloc[anger_validation_idx,:]
+
+
+# mean_and_std_train = dict()
+# analyzer = SentimentIntensityAnalyzer()
+# mean_and_std_train['anger'] = []
+
+# temporary_df = anger_train_df['text'].apply(lambda x: analyzer.polarity_scores(x)['anger'])
+# mean_and_std_train['anger'] = np.array([np.mean(temporary_df), np.std(temporary_df)])
+
+
+# emo_validation_df = pd.concat([not_anger_df, anger_validation_df],axis=0,ignore_index=True)
+
+# z_scores = dict()
+# mean = mean_and_std_train['anger'][0]
+# std = mean_and_std_train['anger'][1]
+# z_score = (emo_validation_df['text'].apply(lambda x: (analyzer.polarity_scores(x)['anger']-mean)/std)).sort_values()
+# z_scores['anger'] = []
+# z_scores['anger'].extend(sorted(z_score.values))
+
+
+
+# emo_train_df = pd.concat([not_anger_df, anger_train_df],axis=0,ignore_index=True)
+
+# # z_scores
+
+
+# In[7]:
+
+
+analyzer = SentimentIntensityAnalyzer()
+mean_and_std_train = dict()
+mean_and_std_validation = dict()
+z_scores_train = dict()
+z_scores_validation = dict()
+
+for emotion in emotions:
+    emotion_idx = np.array(emo_df[emo_df[emotion]==1].index)
+    all_idx = np.array(emo_df.index) 
+
+    '''indices of posts which doesn't t contain given emotion'''
+    not_emotion_idx = [e for e in all_idx if e not in emotion_idx]
+    not_emotion_df = emo_df.iloc[not_emotion_idx, :]
+
+    '''split idx which doesn't contain given emotion into training and validation set ~ 50/50.
+       Creatin corrensponding ddataframes'''
+    train_idx = np.random.choice(not_emotion_idx, int(len(not_emotion_idx)/2))
+    train_df = emo_df.iloc[train_idx,:]
     
-mean_and_std
+    validation_idx = [e for e in not_emotion_idx if e not in train_idx]
+    validation_df = emo_df.iloc[validation_idx,:]
+    
+    print(emotion, 'idx computed')
+    
+    ''' Counting Z-scores for training set'''
+    mean_and_std_train[emotion] = []
+    temporary_df_t = train_df['text'].apply(lambda x: analyzer.polarity_scores(x)[emotion])
+    mean_and_std_train[emotion] = np.array([np.mean(temporary_df_t), np.std(temporary_df_t)])
+    
+    print(emotion, 'train: mean and std computed')
+
+    emo_and_validation_df = pd.concat([not_emotion_df, validation_df],axis=0,ignore_index=True)
+    
+    mean_t = mean_and_std_train[emotion][0]
+    std_t = mean_and_std_train[emotion][1]
+    z_score_t = (emo_and_validation_df['text'].apply(lambda x: (analyzer.polarity_scores(x)[emotion]-mean_t)/std_t)).sort_values()
+    z_scores_train[emotion] = []
+    z_scores_train[emotion].extend(sorted(z_score_t.values))
+    
+    print(emotion, 'train: z-scores computed')
+    
+    ''' Counting Z-scores for validation set'''
+    mean_and_std_validation[emotion] = []
+    temporary_df_v = validation_df['text'].apply(lambda x: analyzer.polarity_scores(x)[emotion])
+    mean_and_std_validation[emotion] = np.array([np.mean(temporary_df_v), np.std(temporary_df_v)])
+    
+    print(emotion, 'validation: mean and std computed')
+
+    emo_and_train_df = pd.concat([not_emotion_df, train_df],axis=0,ignore_index=True)
+    
+    mean_v = mean_and_std_validation[emotion][0]
+    std_v = mean_and_std_validation[emotion][1]
+    z_score_v = (emo_and_train_df['text'].apply(lambda x: (analyzer.polarity_scores(x)[emotion]-mean_v)/std_v)).sort_values()
+    z_scores_validation[emotion] = []
+    z_scores_validation[emotion].extend(sorted(z_score_v.values))
+    
+    print(emotion, 'validation: z-scores computed')
+
+
+# In[8]:
+
+
+mean_and_std_train
+
+
+# In[9]:
+
+
+mean_and_std_validation
 
 
 # In[10]:
 
 
-z_scores = dict()
+z_scores_train
 
+
+# In[11]:
+
+
+z_scores_validation
+
+
+# In[12]:
+
+
+'''how many post labeled with z-score higher than 1.95 are present in the dataset'''
+
+tp_count = dict()
 for emotion in emotions:
-    idx = np.random.choice(emo_df[emo_df[emotion]==1].index,50)
-    mean = mean_and_std[emotion][0]
-    std = mean_and_std[emotion][1]
-    z_score = (emo_df.loc[idx,'text'].apply(lambda x: (analyzer.polarity_scores(x)[emotion]-mean)/std)).sort_values()
-    z_scores[emotion] = []
-    z_scores[emotion].extend(sorted(z_score.values))
-
-z_scores
-
-
-# In[18]:
-
-
-data = { 'Emotion': ['anger'], 'Mean':mean_and_std['anger'][0], 'Std':mean_and_std['anger'][1], 'Min z-score': z_scores['anger'][:1], 'Max z-score':z_scores['anger'][-1:]}  
-df = pd.DataFrame(data)  
-
-for emotion in emotions[1:]:
-    data = { 'Emotion': emotion, 'Mean':mean_and_std[emotion][0], 'Std':mean_and_std[emotion][1], 'Min z-score': z_scores[emotion][:1], 'Max z-score':z_scores[emotion][-1:]}  
-    temp_df = pd.DataFrame(data)  
-    df = df.append(temp_df)
+    arr_train = np.array(z_scores_train[emotion])
+    tp_count[emotion + '_train'] = len(arr_train[abs(arr_train>1.96)])
     
-df
+    arr_validation = np.array(z_scores_validation[emotion])
+    tp_count[emotion + '_validation'] = len(arr_validation[abs(arr_validation>1.96)])
+
+tp_count
+
+
+# In[ ]:
+
+
+# mean_and_std = dict()
+# analyzer = SentimentIntensityAnalyzer()
+
+# for emotion in emotions[:2]:
+#     mean_and_std[emotion] = []
+#     temporary_df = emo_df[emo_df[emotion]==1]['text'].apply(lambda x: analyzer.polarity_scores(x)[emotion])
+#     mean_and_std[emotion] = np.array([np.mean(temporary_df), np.std(temporary_df)]) 
+    
+# mean_and_std
+
+
+# In[ ]:
+
+
+# z_scores = dict()
+
+# for emotion in emotions[:2]:
+#     idx = np.random.choice(emo_df[emo_df[emotion]==1].index,50)
+#     mean = mean_and_std[emotion][0]
+#     std = mean_and_std[emotion][1]
+#     z_score = (emo_df.loc[idx,'text'].apply(lambda x: (analyzer.polarity_scores(x)[emotion]-mean)/std)).sort_values()
+#     z_scores[emotion] = []
+#     z_scores[emotion].extend(sorted(z_score.values))
+
+# z_scores
+
+
+# In[ ]:
+
+
+# data = { 'Emotion': ['anger'], 'Mean':mean_and_std['anger'][0], 'Std':mean_and_std['anger'][1], 'Min z-score': z_scores['anger'][:1], 'Max z-score':z_scores['anger'][-1:]}  
+# df = pd.DataFrame(data)  
+
+# for emotion in emotions[1:]:
+#     data = { 'Emotion': emotion, 'Mean':mean_and_std[emotion][0], 'Std':mean_and_std[emotion][1], 'Min z-score': z_scores[emotion][:1], 'Max z-score':z_scores[emotion][-1:]}  
+#     temp_df = pd.DataFrame(data)  
+#     df = df.append(temp_df)
+    
+# df
 
